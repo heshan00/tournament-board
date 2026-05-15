@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tournament Schedule Board</title>
+  <style>
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.32} }
+    @keyframes nowpulse { 0%,100%{opacity:1} 50%{opacity:.5} }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; background: #09091a; }
+    #root { min-height: 100vh; }
+    input, select {
+      background: #0a0b1e; border: 1px solid #161830;
+      border-radius: 5px; color: #c8cae0;
+      padding: 6px 9px; font-family: inherit; font-size: 12px; outline: none;
+    }
+    input::placeholder { color: #252848; }
+    button { cursor: pointer; font-family: inherit; }
+    ::-webkit-scrollbar { width: 4px; height: 5px; }
+    ::-webkit-scrollbar-track { background: #09091a; }
+    ::-webkit-scrollbar-thumb { background: #1e2040; border-radius: 3px; }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script>
+const {useState,useEffect,useRef,useCallback}=React;
+const E=(t,p,...c)=>React.createElement(t,p,...c);
+
+const PX=2.4, TS=600, TE=1200, RH=56, LW=175, HH=50;
+const TW=(TE-TS)*PX;
+
+const GCFG={
+  "Beat Saber":     {c:"#d400ff",icon:"BS"},
+  "Clash Royale":   {c:"#00b4ff",icon:"CR"},
+  "CODM Solo BR":   {c:"#6ab04c",icon:"CO"},
+  "FC 26":          {c:"#00cfff",icon:"FC"},
+  "FF Clash Squad": {c:"#ff6b35",icon:"FF"},
+  "FF Solo BR":     {c:"#e55039",icon:"FS"},
+  "Forza":          {c:"#00d4ff",icon:"FZ"},
+  "LOL 1v1":        {c:"#c9a84c",icon:"LL"},
+  "MK 1":           {c:"#9b59b6",icon:"MK"},
+  "MLBB":           {c:"#e74c3c",icon:"ML"},
+  "PUBG Duo":       {c:"#f39c12",icon:"PD"},
+  "PUBG TDM":       {c:"#e67e22",icon:"PT"},
+  "Valorant 1v1":   {c:"#ff4655",icon:"VA"},
+};
+const TCFG={
+  "check-in":{label:"Check-IN",c:"#FFD600"},
+  "draw":    {label:"Draw Creation",c:"#69F0AE"},
+  "match":   {label:"Match",c:"#9b7ef8"},
+  "prize":   {label:"Prize Giving",c:"#FF80AB"},
+};
+
+const toMin=s=>{if(!s)return 0;const[h,m]=s.split(":").map(Number);return h*60+m;};
+const toHM=m=>`${String(Math.floor(m/60)).padStart(2,"0")}:${String(m%60).padStart(2,"0")}`;
+const fmt=s=>{if(!s)return"?";const[h,m]=s.split(":").map(Number);return`${h%12||12}:${String(m).padStart(2,"0")} ${h>=12?"PM":"AM"}`;};
+const nowHM=()=>{const n=new Date();return toHM(n.getHours()*60+n.getMinutes());};
+const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,5);
+const getNM=()=>{const n=new Date();return n.getHours()*60+n.getMinutes();};
+
+const calcStatus=(evt,nm)=>{
+  if(evt.status==="live")return"current";
+  if(evt.status==="done")return"past";
+  const sm=toMin(evt.start),em=evt.end?toMin(evt.end):null;
+  if(em&&nm>=em)return"past";
+  if(nm>=sm&&(!em||nm<=em))return"current";
+  return"future";
+};
+
+const INIT={
+  title:"Gaming Tournament 2025",
+  games:Object.keys(GCFG).sort().map(n=>({id:n.replace(/\s/g,"-").toLowerCase(),name:n})),
+  events:[]
+};
+
+function PhaseCell({gid,type,events,onStart,onEnd,onDel,onSched}){
+  const[sf,setSf]=useState(false);
+  const[st,setSt]=useState("10:00");
+  const[en,setEn]=useState("11:00");
+  const tc=TCFG[type];
+  const nm=getNM();
+  const live=events.find(e=>e.status==="live");
+  const rest=events.filter(e=>e.status!=="live");
+  const IS2={background:"#07081a",border:"1px solid #111228",color:"#c8cae0",borderRadius:3,padding:"4px 6px",fontSize:11,fontFamily:"monospace",width:84};
+  const Btn=(c)=>({padding:"3px 9px",background:`${c}10`,border:`1px solid ${c}38`,color:c,borderRadius:3,cursor:"pointer",fontSize:10,fontFamily:"monospace"});
+  return E("td",{style:{padding:"7px 9px",borderRight:"1px solid #0a0b18",minWidth:140,verticalAlign:"top"}},
+    live&&E("div",{style:{background:`${tc.c}0e`,border:`1px solid ${tc.c}45`,borderRadius:5,padding:"6px 8px",marginBottom:5}},
+      E("div",{style:{fontSize:10,color:tc.c,fontWeight:700,marginBottom:4}},`● LIVE · ${fmt(live.start)}`),
+      E("div",{style:{display:"flex",gap:4}},
+        E("button",{onClick:()=>onEnd(live.id),style:Btn("#FF80AB")},"■ End"),
+        E("button",{onClick:()=>onDel(live.id),style:Btn("#444")},"✗")
+      )
+    ),
+    rest.map(e=>{
+      const s2=calcStatus(e,nm);
+      return E("div",{key:e.id,style:{display:"flex",alignItems:"center",gap:4,marginBottom:3}},
+        E("span",{style:{fontSize:10,color:s2==="past"?"#252848":s2==="current"?tc.c:"#3a3d68",fontFamily:"monospace"}},
+          `${s2==="past"?"✓":s2==="current"?"●":"⏱"} ${fmt(e.start)}–${fmt(e.end||"?")}`),
+        E("button",{onClick:()=>onDel(e.id),style:{background:"none",border:"none",color:"#ff408120",cursor:"pointer",fontSize:12,padding:0}},"×")
+      );
+    }),
+    !live&&E("div",{style:{display:"flex",gap:3,flexWrap:"wrap",marginTop:3}},
+      E("button",{onClick:()=>onStart(gid,type),style:Btn(tc.c)},"▶ Start Now"),
+      E("button",{onClick:()=>setSf(f=>!f),style:Btn("#444")},sf?"↑ Close":"+ Set Time")
+    ),
+    sf&&E("div",{style:{marginTop:5,display:"flex",flexDirection:"column",gap:4}},
+      E("div",{style:{display:"flex",gap:3,alignItems:"center"}},
+        E("input",{type:"time",value:st,onChange:e=>setSt(e.target.value),style:IS2}),
+        E("span",{style:{color:"#1e2040",fontSize:11}},"→"),
+        E("input",{type:"time",value:en,onChange:e=>setEn(e.target.value),style:IS2})
+      ),
+      E("div",{style:{display:"flex",gap:3}},
+        E("button",{onClick:()=>{onSched(gid,type,st,en);setSf(false);},style:Btn("#69F0AE")},"+ Schedule"),
+        E("button",{onClick:()=>{onStart(gid,type,st,en);setSf(false);},style:Btn(tc.c)},"▶ At Time")
+      )
+    )
+  );
+}
+
+function App(){
+  const[data,setData]=useState(null);
+  const[admin,setAdmin]=useState(false);
+  const[loading,setLoading]=useState(true);
+  const[saving,setSaving]=useState(false);
+  const[ok,setOk]=useState("");
+  const[now,setNow]=useState(new Date());
+  const[newGame,setNewGame]=useState("");
+  const[editTitle,setEditTitle]=useState("");
+  const tlRef=useRef(null);
+
+  const load=useCallback(async()=>{
+    try{
+      const r=await fetch("/api/data");
+      if(!r.ok)throw new Error("fetch failed");
+      setData(await r.json());
+    }catch{setData(d=>d||INIT);}
+    setLoading(false);
+  },[]);
+
+  useEffect(()=>{
+    load();
+    const ri=setInterval(load,15000);
+    const ti=setInterval(()=>setNow(new Date()),20000);
+    return()=>{clearInterval(ri);clearInterval(ti);};
+  },[load]);
+
+  useEffect(()=>{if(admin&&data)setEditTitle(data.title);},[admin]);
+
+  useEffect(()=>{
+    if(tlRef.current&&data){
+      const nm=getNM();
+      tlRef.current.scrollLeft=Math.max(0,(nm-TS)*PX-300);
+    }
+  },[!!data]);
+
+  const save=async next=>{
+    setSaving(true);
+    try{
+      await fetch("/api/data",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(next)});
+      setData(next);setOk("Saved ✓");
+      setTimeout(()=>setOk(""),2000);
+    }catch{setOk("Save error");}
+    setSaving(false);
+  };
+
+  const startNow=(gid,type,start,end)=>save({...data,events:[...data.events,{id:uid(),gid,type,start:start||nowHM(),end:end||null,status:"live"}]});
+  const endEvt=id=>save({...data,events:data.events.map(e=>e.id===id?{...e,end:nowHM(),status:"done"}:e)});
+  const delEvt=id=>save({...data,events:data.events.filter(e=>e.id!==id)});
+  const schedEvt=(gid,type,st2,en)=>save({...data,events:[...data.events,{id:uid(),gid,type,start:st2,end:en,status:"scheduled"}]});
+  const addGame=()=>{const t=newGame.trim();if(!t)return;save({...data,games:[...data.games,{id:t.replace(/\s/g,"-").toLowerCase(),name:t}]});setNewGame("");};
+  const rmGame=gid=>save({...data,games:data.games.filter(g=>g.id!==gid),events:data.events.filter(e=>e.gid!==gid)});
+
+  if(loading)return E("div",{style:{height:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#09091a",color:"#00d4ff",fontFamily:"monospace",letterSpacing:3,fontSize:14}},"Loading Tournament Board...");
+
+  const games=[...data.games].sort((a,b)=>a.name.localeCompare(b.name));
+  const nm=now.getHours()*60+now.getMinutes();
+  const nowPx=Math.max(0,Math.min((nm-TS)*PX,TW));
+  const nowOk=nm>=TS&&nm<=TE;
+  const hours=Array.from({length:11},(_,i)=>TS+i*60);
+
+  const IS3={background:"#0a0b1e",border:"1px solid #161830",color:"#c8cae0",borderRadius:5,padding:"6px 9px",fontSize:12,fontFamily:"monospace"};
+  const Btn3=(c,x={})=>({padding:"6px 14px",background:`${c}12`,border:`1px solid ${c}40`,color:c,borderRadius:5,cursor:"pointer",fontSize:12,fontFamily:"monospace",fontWeight:600,...x});
+
+  return E("div",{style:{background:"#09091a",minHeight:"100vh",color:"#c8cae0",fontFamily:"'Segoe UI',system-ui,sans-serif",fontSize:13,display:"flex",flexDirection:"column"}},
+
+    // ── HEADER ──
+    E("div",{style:{background:"#0f1020",borderBottom:"1px solid #161830",padding:"12px 20px",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10,flexShrink:0}},
+      E("div",null,
+        E("div",{style:{fontSize:9,color:"#00d4ff60",letterSpacing:3,textTransform:"uppercase",marginBottom:2}},"◉ Live Tournament Schedule"),
+        E("div",{style:{fontSize:20,fontWeight:700,color:"#fff",letterSpacing:.3}},data.title)
+      ),
+      E("div",{style:{display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}},
+        E("div",{style:{display:"flex",gap:10,alignItems:"center"}},
+          Object.entries(TCFG).map(([k,v])=>E("div",{key:k,style:{display:"flex",alignItems:"center",gap:4}},
+            E("div",{style:{width:11,height:11,borderRadius:2,background:`${v.c}18`,border:`1px solid ${v.c}55`}}),
+            E("span",{style:{fontSize:10,color:"#1e2248"}},v.label)
+          )),
+          E("div",{style:{display:"flex",alignItems:"center",gap:4}},
+            E("div",{style:{width:11,height:11,borderRadius:2,border:"1px solid #ffffff06",background:"#ffffff03"}}),
+            E("span",{style:{fontSize:10,color:"#1a1e40"}},"Past")
+          )
+        ),
+        E("div",{style:{display:"flex",alignItems:"center",gap:6}},
+          ok&&E("span",{style:{fontSize:11,color:"#69F0AE",marginRight:4}},ok),
+          saving&&E("span",{style:{fontSize:11,color:"#2a2d4a",marginRight:4}},"Saving..."),
+          E("button",{onClick:()=>setAdmin(false),style:{...Btn3(!admin?"#00d4ff":"#1e2040")}},"◉ Board"),
+          E("button",{onClick:()=>setAdmin(a=>!a),style:{...Btn3(admin?"#FF80AB":"#1e2040")}},"⚙ Admin")
+        )
+      )
+    ),
+
+    // ── ADMIN PANEL ──
+    admin&&E("div",{style:{background:"#0a0b1d",borderBottom:"1px solid #0d0e1e",padding:"14px 20px",flexShrink:0}},
+      E("div",{style:{fontSize:9,color:"#111530",letterSpacing:2,textTransform:"uppercase",marginBottom:12}},"⚙ Admin Controls — Changes save instantly and are visible to everyone"),
+      E("div",{style:{display:"flex",gap:8,alignItems:"center",marginBottom:12,flexWrap:"wrap"}},
+        E("input",{style:{...IS3,width:260},value:editTitle,placeholder:"Tournament title",onChange:e=>setEditTitle(e.target.value)}),
+        E("button",{onClick:()=>save({...data,title:editTitle}),style:Btn3("#69F0AE")},"Save Title"),
+        E("input",{style:{...IS3,width:180},placeholder:"New game name...",value:newGame,onChange:e=>setNewGame(e.target.value),onKeyDown:e=>e.key==="Enter"&&addGame()}),
+        E("button",{onClick:addGame,style:Btn3("#69F0AE")},"+ Add Game"),
+        E("button",{onClick:()=>{if(confirm("Clear all events?"))save({...data,events:[]});},style:Btn3("#ff4081")},"↺ Clear Events")
+      ),
+      E("div",{style:{overflowX:"auto",borderRadius:6,border:"1px solid #0a0b18"}},
+        E("table",{style:{borderCollapse:"collapse",width:"max-content"}},
+          E("thead",null,E("tr",{style:{background:"#0c0d1e"}},
+            E("th",{style:{textAlign:"left",padding:"7px 12px",fontSize:9,color:"#141630",letterSpacing:1,textTransform:"uppercase",borderRight:"1px solid #0a0b18",minWidth:145}},"Game"),
+            Object.entries(TCFG).map(([k,v])=>E("th",{key:k,style:{textAlign:"left",padding:"7px 9px",fontSize:9,color:v.c,letterSpacing:1,textTransform:"uppercase",borderRight:"1px solid #0a0b18",minWidth:145}},v.label))
+          )),
+          E("tbody",null,games.map((g,i)=>{
+            const gc=GCFG[g.name]||{c:"#5bc4ff",icon:g.name.slice(0,2).toUpperCase()};
+            return E("tr",{key:g.id,style:{background:i%2===0?"#0a0b1c":"#090a18",borderTop:"1px solid #0a0b18"}},
+              E("td",{style:{padding:"8px 12px",borderRight:"1px solid #0a0b18",verticalAlign:"top",minWidth:145}},
+                E("div",{style:{display:"flex",alignItems:"center",gap:7,marginBottom:4}},
+                  E("div",{style:{width:24,height:24,borderRadius:4,background:`${gc.c}18`,border:`1px solid ${gc.c}40`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:800,color:gc.c,fontFamily:"monospace",flexShrink:0}},gc.icon),
+                  E("span",{style:{fontSize:11,fontWeight:600,color:"#6062a0"}},g.name)
+                ),
+                E("button",{onClick:()=>rmGame(g.id),style:{background:"none",border:"none",color:"#ff408118",cursor:"pointer",fontSize:10,padding:0}},"× Remove game")
+              ),
+              Object.keys(TCFG).map(type=>E(PhaseCell,{key:type,gid:g.id,type,
+                events:data.events.filter(e=>e.gid===g.id&&e.type===type),
+                onStart:startNow,onEnd:endEvt,onDel:delEvt,onSched:schedEvt
+              }))
+            );
+          }))
+        )
+      )
+    ),
+
+    // ── GANTT BOARD ──
+    E("div",{style:{overflowX:"auto",flex:1},ref:tlRef},
+      E("div",{style:{display:"flex",minWidth:`${LW+TW}px`}},
+
+        // Left sticky labels
+        E("div",{style:{width:LW,flexShrink:0,borderRight:"1px solid #121328",background:"#0c0e1e",position:"sticky",left:0,zIndex:10}},
+          E("div",{style:{height:HH,background:"#0d0e22",borderBottom:"1px solid #121328",display:"flex",alignItems:"center",padding:"0 16px",fontSize:9,color:"#141632",letterSpacing:2,textTransform:"uppercase"}},"Games — A to Z"),
+          games.map((g,i)=>{
+            const gc=GCFG[g.name]||{c:"#5bc4ff",icon:g.name.slice(0,2).toUpperCase()};
+            const hasLive=data.events.some(e=>e.gid===g.id&&e.status==="live");
+            return E("div",{key:g.id,style:{
+              height:RH,display:"flex",alignItems:"center",
+              paddingLeft:14,paddingRight:8,
+              borderBottom:"1px solid #0c0d1e",
+              background:hasLive?`${gc.c}08`:i%2===0?"#0c0e1e":"#0a0c1c",
+              borderLeft:hasLive?`3px solid ${gc.c}`:"3px solid transparent",
+            }},
+              E("div",{style:{width:30,height:30,borderRadius:6,flexShrink:0,background:`${gc.c}18`,border:`1.5px solid ${gc.c}40`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:800,color:gc.c,fontFamily:"monospace",marginRight:10}},gc.icon),
+              E("div",{style:{overflow:"hidden",flex:1}},
+                E("div",{style:{fontSize:11,fontWeight:700,color:hasLive?"#fff":"#6062a0",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},g.name),
+                hasLive&&E("div",{style:{fontSize:9,color:gc.c,marginTop:1,animation:"blink 1.5s infinite"}},"● LIVE NOW")
+              )
+            );
+          })
+        ),
+
+        // Timeline
+        E("div",{style:{position:"relative",width:TW,flexShrink:0}},
+          // Time axis
+          E("div",{style:{position:"sticky",top:0,height:HH,background:"#0d0e22",borderBottom:"1px solid #121328",zIndex:9}},
+            hours.map(t=>E("div",{key:t,style:{position:"absolute",left:(t-TS)*PX,top:0,bottom:0,display:"flex",alignItems:"flex-end",paddingLeft:6,paddingBottom:10,borderLeft:"1px solid #111228"}},
+              E("span",{style:{fontSize:10,color:"#252855",whiteSpace:"nowrap",fontFamily:"monospace",letterSpacing:.5}},fmt(toHM(t)))
+            )),
+            Array.from({length:20},(_,i)=>TS+i*30+30).filter(t=>t%60!==0&&t<=TE).map(t=>
+              E("div",{key:t,style:{position:"absolute",left:(t-TS)*PX,top:"60%",bottom:0,width:1,background:"#0e0f22"}})
+            ),
+            nowOk&&E("div",{style:{position:"absolute",left:nowPx,top:0,bottom:0,width:2,background:"rgba(255,68,68,.75)",zIndex:5}},
+              E("div",{style:{position:"absolute",top:6,left:-18,fontSize:9,color:"#ff5555",fontWeight:700,letterSpacing:.5,whiteSpace:"nowrap",fontFamily:"monospace"}},"▼ NOW"),
+              E("div",{style:{position:"absolute",bottom:-1,left:-5,width:12,height:12,borderRadius:"50%",background:"#ff4444",animation:"nowpulse 1.5s infinite"}})
+            )
+          ),
+
+          // Rows
+          games.map((g,gi)=>{
+            const gEvts=data.events.filter(e=>e.gid===g.id);
+            const gc=GCFG[g.name]||{c:"#5bc4ff"};
+            return E("div",{key:g.id,style:{
+              position:"relative",height:RH,
+              background:gi%2===0?"#09091a":"#08091c",
+              borderBottom:"1px solid #0c0d1e"
+            }},
+              hours.map(t=>E("div",{key:t,style:{position:"absolute",left:(t-TS)*PX,top:0,bottom:0,width:1,background:"#0d0e1e"}})),
+              gEvts.map(evt=>{
+                const sm=toMin(evt.start);
+                const em=evt.end?toMin(evt.end):(evt.status==="live"?nm:sm+30);
+                const status=calcStatus(evt,nm);
+                const tc=TCFG[evt.type]||TCFG.match;
+                const left=Math.max(0,(sm-TS)*PX);
+                const right=Math.min(TW,(em-TS)*PX);
+                const w=Math.max(8,right-left);
+                const bS=
+                  status==="past"
+                    ?{background:"rgba(255,255,255,.022)",border:"1px solid rgba(255,255,255,.035)",opacity:.28,filter:"grayscale(1)"}
+                    :status==="current"
+                      ?{background:`${tc.c}22`,border:`2.5px solid ${tc.c}`,animation:"blink 1.4s ease-in-out infinite"}
+                      :{background:`${tc.c}12`,border:`1px solid ${tc.c}50`};
+                return E("div",{key:evt.id,
+                  title:`${tc.label}: ${fmt(evt.start)} – ${evt.end?fmt(evt.end):"ongoing"} [${status}]`,
+                  style:{position:"absolute",left,top:8,width:w,height:RH-16,borderRadius:5,overflow:"hidden",display:"flex",alignItems:"center",justifyContent:"center",...bS}},
+                  w>50&&E("span",{style:{fontSize:10,fontWeight:status==="current"?700:400,color:status==="past"?"#1a1d38":tc.c,padding:"0 6px",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",textAlign:"center"}},
+                    status==="current"?`● ${tc.label}`:tc.label),
+                  status==="current"&&E("div",{style:{position:"absolute",right:6,width:7,height:7,borderRadius:"50%",background:tc.c,flexShrink:0}})
+                );
+              }),
+              nowOk&&E("div",{style:{position:"absolute",left:nowPx,top:0,bottom:0,width:1,background:"rgba(255,68,68,.2)",zIndex:3,pointerEvents:"none"}})
+            );
+          })
+        )
+      ),
+      data.events.length===0&&E("div",{style:{textAlign:"center",padding:"50px 30px",color:"#0e0f1e",fontSize:14,letterSpacing:.5}},
+        "No events scheduled yet — click ⚙ Admin to set up the schedule")
+    ),
+
+    // ── FOOTER ──
+    E("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 20px",background:"#0c0d1e",borderTop:"1px solid #0d0e1e",flexShrink:0}},
+      E("div",{style:{display:"flex",alignItems:"center",gap:8}},
+        E("div",{style:{width:8,height:8,borderRadius:"50%",background:"#ff4444",animation:"nowpulse 2s infinite"}}),
+        E("span",{style:{fontSize:10,color:"#252848",fontFamily:"monospace"}},"Current time: "+now.toLocaleTimeString())
+      ),
+      E("span",{style:{fontSize:10,color:"#0e0f1e"}},"Auto-refreshes every 15s")
+    )
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(E(App,null));
+</script>
+</body>
+</html>
